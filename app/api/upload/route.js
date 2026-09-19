@@ -6,6 +6,17 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+// CORS hlavičky pre povolenie požiadaviek z instagram.com
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders });
+}
+
 export async function POST(request) {
   try {
     const body = await request.json();
@@ -14,11 +25,11 @@ export async function POST(request) {
     if (!accountName || !Array.isArray(names)) {
       return NextResponse.json(
         { error: 'Chýba accountName alebo pole names.' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
 
-    // 1. Načítanie všetkých unikátnych účtov z histórie databázy
+    // 1. Načítanie unikátnych účtov z histórie
     const { data: existingSnapshots } = await supabase
       .from('snapshots')
       .select('account_name');
@@ -29,18 +40,18 @@ export async function POST(request) {
 
     const isExistingAccount = trackedAccounts.includes(accountName);
 
-    // Ak ide o ÚPLNE NOVÝ účet (4. v poradí) a limit 3 unikátnych účtov je naplnený
+    // Kontrola 3-účtového limitu Pre Free plán
     if (!isExistingAccount && trackedAccounts.length >= 3) {
       return NextResponse.json(
         {
           error: 'LIMIT_EXCEEDED',
-          message: 'Free plán umožňuje registrovať maximálne 3 unikátne Instagram účty. Odstránenie/skrytie existujúceho účtu neuvoľňuje slot pre nový účet. Pre sledovanie 4. a ďalších účtov je potrebný PRO plán.'
+          message: 'Free plán umožňuje registrovať maximálne 3 unikátne Instagram účty. Pre pridanie 4. účtu prejdite na PRO plán.'
         },
-        { status: 403 }
+        { status: 403, headers: corsHeaders }
       );
     }
 
-    // 2. Vytvorenie skenu (nadviaže na existujúcu históriu, ak účet už existoval)
+    // 2. Vytvorenie skenu
     const { data: snapshot, error: snapshotError } = await supabase
       .from('snapshots')
       .insert({ account_name: accountName })
@@ -61,14 +72,17 @@ export async function POST(request) {
 
     if (followersError) throw followersError;
 
-    return NextResponse.json({
-      success: true,
-      snapshotId: snapshot.id,
-      count: names.length,
-      isExistingAccount,
-      trackedAccountsCount: isExistingAccount ? trackedAccounts.length : trackedAccounts.length + 1
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        snapshotId: snapshot.id,
+        count: names.length,
+        isExistingAccount,
+        trackedAccountsCount: isExistingAccount ? trackedAccounts.length : trackedAccounts.length + 1
+      },
+      { headers: corsHeaders }
+    );
   } catch (err) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err.message }, { status: 500, headers: corsHeaders });
   }
 }
