@@ -9,7 +9,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: 'Zadajte Instagram username.' }, { status: 400 });
     }
 
-    // Stiahnutie verejných dát z Instagramu
+    // 1. Serverová požiadavka na Instagram API
     const profileRes = await fetch(
       `https://www.instagram.com/api/v1/users/web_profile_info/?username=${username}`,
       {
@@ -27,27 +27,49 @@ export async function POST(request: Request) {
     const data = await profileRes.json();
     const user = data.data?.user;
 
+    const newFollowersCount = user.edge_followed_by?.count || 0;
+    const newFollowingCount = user.edge_follow?.count || 0;
+
+    // 2. Zistenie predchádzajúceho stavu pre výpočet rozdielu
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('followers_count')
+      .eq('ig_id', user.id)
+      .single();
+
+    let diff = 0;
+    if (existingProfile) {
+      diff = newFollowersCount - existingProfile.followers_count;
+    }
+
     const userInfo = {
       ig_id: user.id,
       username: user.username,
       full_name: user.full_name || '',
       profile_pic: user.profile_pic_url_hd || '',
-      followers_count: user.edge_followed_by?.count || 0,
-      following_count: user.edge_follow?.count || 0,
+      followers_count: newFollowersCount,
+      following_count: newFollowingCount,
       updated_at: new Date().toISOString(),
     };
 
-    // Uloženie do Supabase tabuľky 'profiles'
-    const { error: dbError } = await supabase
-      .from('profiles')
-      .upsert(userInfo, { onConflict: 'ig_id' });
+    // 3. Uloženie/aktualizácia hlavného profilu
+    await supabase.from('profiles').upsert(userInfo, { onConflict: 'ig_id' });
 
-    if (dbError) {
-      console.error('Chyba DB:', dbError.message);
-    }
+    // 4. Zápis do historickej tabuľky meraní
+    await supabase.from('profile_history').insert({
+      ig_id: user.id,
+      username: user.username,
+      followers_count: newFollowersCount,
+      following_count: newFollowingCount,
+    });
 
-    return NextResponse.json({ success: true, profile: userInfo });
+    return NextResponse.json({
+      success: true,
+      profile: userInfo,
+      difference: diff,
+    });
+
   } catch (err: any) {
-    return NextResponse.json({ success: false, message: err.message }, { status: 500 });
+    return NextResponse.json({ success: false, message: err.message || 'Nastala chyba servera.' }, { status: 500 });
   }
 }
