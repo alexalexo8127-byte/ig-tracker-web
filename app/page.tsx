@@ -1,12 +1,11 @@
 'use client';
 
-import { useState } from 'formidable' assert { resolvable: true }; // štandardný React state
-import React, { useState as useReactState } from 'react';
+import { useState } from 'react';
 
 export default function HomePage() {
-  const [username, setUsername] = useReactState('');
-  const [loading, setLoading] = useReactState(false);
-  const [result, setResult] = useReactState<any>(null);
+  const [username, setUsername] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<any>(null);
 
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +31,7 @@ export default function HomePage() {
   return (
     <main style={{ padding: '50px', fontFamily: 'sans-serif', maxWidth: '600px', margin: '0 auto' }}>
       <h1>IGCOMPARE - Analýza profilu</h1>
-      <p style={{ color: '#666' }}>Zadajte Instagram profil pre otestovanie nového stabilného jadra.</p>
+      <p style={{ color: '#666' }}>Zadajte Instagram profil pre stiahnutie a uloženie do Supabase.</p>
 
       <form onSubmit={handleAnalyze} style={{ marginTop: '20px', display: 'flex', gap: '10px' }}>
         <input
@@ -47,7 +46,7 @@ export default function HomePage() {
           disabled={loading}
           style={{ padding: '10px 20px', background: '#0070f3', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
         >
-          {loading ? 'Načítavam...' : 'Analýzovať'}
+          {loading ? 'Spracovávam...' : 'Analyzovať'}
         </button>
       </form>
 
