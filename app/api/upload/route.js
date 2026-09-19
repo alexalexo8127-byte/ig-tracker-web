@@ -1,3 +1,4 @@
+import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -7,32 +8,67 @@ const supabase = createClient(
 
 export async function POST(request) {
   try {
-    const { names, accountName } = await request.json();
+    const body = await request.json();
+    const { accountName, names } = body;
 
-    if (!names || !Array.isArray(names)) {
-      return Response.json({ error: 'Neplatný formát dát' }, { status: 400 });
+    if (!accountName || !Array.isArray(names)) {
+      return NextResponse.json(
+        { error: 'Chýba accountName alebo pole names.' },
+        { status: 400 }
+      );
     }
 
-    // 1. Vytvorenie záznamu o novom skene (snapshot)
-    const { data: snapshot, error: snapErr } = await supabase
+    // 1. Načítanie všetkých unikátnych účtov z histórie databázy
+    const { data: existingSnapshots } = await supabase
       .from('snapshots')
-      .insert({ account_name: accountName || 'Neznámy účet' })
+      .select('account_name');
+
+    const trackedAccounts = Array.from(
+      new Set(existingSnapshots?.map((s) => s.account_name).filter(Boolean) || [])
+    );
+
+    const isExistingAccount = trackedAccounts.includes(accountName);
+
+    // Ak ide o ÚPLNE NOVÝ účet (4. v poradí) a limit 3 unikátnych účtov je naplnený
+    if (!isExistingAccount && trackedAccounts.length >= 3) {
+      return NextResponse.json(
+        {
+          error: 'LIMIT_EXCEEDED',
+          message: 'Free plán umožňuje registrovať maximálne 3 unikátne Instagram účty. Odstránenie/skrytie existujúceho účtu neuvoľňuje slot pre nový účet. Pre sledovanie 4. a ďalších účtov je potrebný PRO plán.'
+        },
+        { status: 403 }
+      );
+    }
+
+    // 2. Vytvorenie skenu (nadviaže na existujúcu históriu, ak účet už existoval)
+    const { data: snapshot, error: snapshotError } = await supabase
+      .from('snapshots')
+      .insert({ account_name: accountName })
       .select()
       .single();
 
-    if (snapErr) return Response.json({ error: snapErr.message }, { status: 500 });
+    if (snapshotError) throw snapshotError;
 
-    // 2. Vloženie všetkých mien followerov
-    const followerRows = names.map(username => ({
+    // 3. Uloženie followerov
+    const followersData = names.map((name) => ({
       snapshot_id: snapshot.id,
-      username: username
+      username: name,
     }));
 
-    const { error: followErr } = await supabase.from('followers').insert(followerRows);
-    if (followErr) return Response.json({ error: followErr.message }, { status: 500 });
+    const { error: followersError } = await supabase
+      .from('followers')
+      .insert(followersData);
 
-    return Response.json({ success: true, count: names.length, snapshotId: snapshot.id });
+    if (followersError) throw followersError;
+
+    return NextResponse.json({
+      success: true,
+      snapshotId: snapshot.id,
+      count: names.length,
+      isExistingAccount,
+      trackedAccountsCount: isExistingAccount ? trackedAccounts.length : trackedAccounts.length + 1
+    });
   } catch (err) {
-    return Response.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
